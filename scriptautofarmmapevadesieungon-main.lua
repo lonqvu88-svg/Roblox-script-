@@ -87,7 +87,7 @@ mainStroke.Parent = mainFrame
 local titleLabel = Instance.new("TextLabel")
 titleLabel.Size = UDim2.new(1, 0, 0, 30)
 titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "EVADE HUB v6.5 (SMOOTH)"
+titleLabel.Text = "EVADE HUB v6.6 (SMART VIP)"
 titleLabel.TextColor3 = Color3.fromRGB(220, 225, 235)
 titleLabel.TextSize = 11
 titleLabel.Font = Enum.Font.GothamBold
@@ -157,7 +157,7 @@ local function createHalfButton(text, posX, posY)
 end
 
 -- ---------------------------------------------------------
--- BỐ TRÍ CÁC NÚT BẤM (GIAO DIỆN MỚI)
+-- BỐ TRÍ CÁC NÚT BẤM
 -- ---------------------------------------------------------
 -- Hàng 1: Auto Farm ON/OFF (Y = 33)
 local autoFarmBtn = createButton("AUTO FARM: OFF", 33)
@@ -235,12 +235,12 @@ tokenFarmBtn.TextColor3 = Color3.fromRGB(185, 120, 255)
 local reviveScriptBtn = createButton("🩸 AUTO REVIVE (CẦN GET KEY)", 312)
 reviveScriptBtn.TextColor3 = Color3.fromRGB(255, 120, 120)
 
--- Hàng 11: Server Hop (Y = 343)
-local serverHopBtn = createButton("🌐 SERVER HOP (< 2 PLAYERS)", 343)
-serverHopBtn.TextColor3 = Color3.fromRGB(255, 200, 80)
+-- Hàng 11: Smart VIP Server Hop (Y = 343)
+local serverHopBtn = createButton("👑 SMART VIP SERVER (SVR KÍN)", 343)
+serverHopBtn.TextColor3 = Color3.fromRGB(255, 215, 0)
 
 -- ---------------------------------------------------------
--- MENU CUỘN CHỌN AFK FARM MODE (FARM PICKER FRAME)
+-- MENU CUỘN CHỌN AFK FARM MODE
 -- ---------------------------------------------------------
 local farmPickerFrame = Instance.new("Frame")
 farmPickerFrame.Name = "FarmPickerFrame"
@@ -292,7 +292,6 @@ selectFarmModeModalBtn.MouseButton1Click:Connect(function()
     farmPickerFrame.Visible = not farmPickerFrame.Visible
 end)
 
--- Danh sách 10 Chế độ AFK Farm riêng biệt
 local farmModes = {
     {name = "🌌 Sky High (1,500m)", pos = Vector3.new(0, 1500, 0)},
     {name = "🚀 Stratosphere (3,000m)", pos = Vector3.new(0, 3000, 0)},
@@ -477,7 +476,7 @@ end
 Players.PlayerRemoving:Connect(removeEspForPlayer)
 
 -- ---------------------------------------------------------
--- LOGIC KIỂM TRA TRẠNG THÁI (SIÊU TỐI ƯU HÓA)
+-- LOGIC KIỂM TRA TRẠNG THÁI
 -- ---------------------------------------------------------
 local autoFarmEnabled = false
 local safePlatform = nil
@@ -503,7 +502,6 @@ local function getCharacterPart(char)
     return char.PrimaryPart or char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head")
 end
 
--- Tối ưu hóa: Loại bỏ hoàn toàn GetDescendants() quét cây thư mục gây drop FPS
 local function isDowned(plr)
     if not plr or not plr.Character then return false end
     local char = plr.Character
@@ -557,7 +555,7 @@ noclipBtn.MouseButton1Click:Connect(function()
     noclipBtn.BackgroundColor3 = noclipEnabled and Color3.fromRGB(28, 52, 38) or Color3.fromRGB(35, 38, 48)
 end)
 
--- VFLY TỐI ƯU HÓA
+-- VFLY
 local function stopVFly()
     if vflyLoop then vflyLoop:Disconnect() vflyLoop = nil end
     if bodyVel then bodyVel:Destroy() bodyVel = nil end
@@ -762,10 +760,10 @@ end
 
 cycleCamBtn.MouseButton1Click:Connect(cycleNextPlayer)
 
--- ESP & SPECTATE RENDER LOOP (THROTTLED ĐỂ FIX DROP FPS VÀ PING)
+-- ESP & SPECTATE RENDER LOOP
 task.spawn(function()
     while true do
-        task.wait(0.08) -- Chạy nhịp 12.5 FPS cho ESP/Check thay vì RenderStepped 144 FPS giúp cực kỳ nhẹ game
+        task.wait(0.08)
 
         if spectateEnabled and selectedPlayer and selectedPlayer.Character then
             local targetHum = selectedPlayer.Character:FindFirstChildOfClass("Humanoid")
@@ -975,45 +973,70 @@ for _, plr in pairs(Players:GetPlayers()) do addPlayerButton(plr) end
 Players.PlayerAdded:Connect(addPlayerButton)
 Players.PlayerRemoving:Connect(removePlayerButton)
 
--- SERVER HOP & EXTERNAL SCRIPTS
-local function hopLowPlayerServer()
-    serverHopBtn.Text = "🔄 ĐANG LỌC SERVER..."
+-- ---------------------------------------------------------
+-- SMART VIP SERVER HOP ENGINE (QUÉT THÔNG MINH SVR KÍN)
+-- ---------------------------------------------------------
+local visitedServers = {}
+
+local function smartVipServerHop()
+    serverHopBtn.Text = "🔍 ĐANG TÌM SERVER KÍN (1-2 P)..."
     task.spawn(function()
         local placeId = game.PlaceId
         local cursor = ""
-        local targetServerId = nil
+        local bestServerId = nil
+        local bestPlayerCount = 999
+        local bestPing = 9999
 
-        for _ = 1, 5 do
+        -- Quét qua nhiều trang API để tìm ra server có cực ít người chơi & ping tối ưu nhất
+        for page = 1, 8 do
             local url = "https://games.roblox.com/v1/games/" .. placeId .. "/servers/0?sortOrder=Asc&limit=100" .. (cursor ~= "" and "&cursor=" .. cursor or "")
-            local success, result = pcall(function() return HttpService:JSONDecode(game:HttpGet(url)) end)
+            local success, result = pcall(function()
+                return HttpService:JSONDecode(game:HttpGet(url))
+            end)
 
             if success and result and result.data then
                 for _, server in ipairs(result.data) do
-                    if server.id ~= game.JobId and server.playing <= 2 and server.playing > 0 then
-                        targetServerId = server.id
-                        break
+                    if server.id ~= game.JobId and not visitedServers[server.id] then
+                        local playing = server.playing or 999
+                        local ping = server.ping or 999
+
+                        -- Tiêu chuẩn Server Kín: Từ 1 đến 3 người chơi
+                        if playing > 0 and playing <= 3 then
+                            if playing < bestPlayerCount or (playing == bestPlayerCount and ping < bestPing) then
+                                bestPlayerCount = playing
+                                bestPing = ping
+                                bestServerId = server.id
+
+                                -- Ưu tiên tuyệt đối: Nếu tìm thấy server chỉ có 1 người, chọn ngay!
+                                if playing == 1 then break end
+                            end
+                        end
                     end
                 end
-                if targetServerId then break end
+
+                if bestServerId and bestPlayerCount == 1 then break end
                 cursor = result.nextPageCursor or ""
                 if not cursor or cursor == "" then break end
             else
                 break
             end
+            task.wait(0.1)
         end
 
-        if targetServerId then
-            serverHopBtn.Text = "🚀 ĐANG CHUYỂN SERVER..."
-            TeleportService:TeleportToPlaceInstance(placeId, targetServerId, LocalPlayer)
+        if bestServerId then
+            visitedServers[bestServerId] = true
+            serverHopBtn.Text = "🚀 CHUYỂN ĐẾN SVR KÍN (" .. tostring(bestPlayerCount) .. " PLAYER)..."
+            task.wait(0.5)
+            TeleportService:TeleportToPlaceInstance(placeId, bestServerId, LocalPlayer)
         else
-            serverHopBtn.Text = "❌ KHÔNG THẤY SVR < 2P!"
+            serverHopBtn.Text = "❌ KHÔNG THẤY SVR KÍN HỢP LỆ!"
             task.wait(1.5)
-            serverHopBtn.Text = "🌐 SERVER HOP (< 2 PLAYERS)"
+            serverHopBtn.Text = "👑 SMART VIP SERVER (SVR KÍN)"
         end
     end)
 end
 
-serverHopBtn.MouseButton1Click:Connect(hopLowPlayerServer)
+serverHopBtn.MouseButton1Click:Connect(smartVipServerHop)
 
 tokenFarmBtn.MouseButton1Click:Connect(function()
     tokenFarmBtn.Text = "⏳ ĐANG TẢI SCRIPT..."
